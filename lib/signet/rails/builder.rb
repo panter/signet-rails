@@ -4,38 +4,49 @@ require 'active_support/core_ext/string'
 module Signet
   module Rails
     class Builder < ::Rack::Builder
-      @@default_options = {}
 
-      def self.set_default_options opts = {}
-	# normalize to symbol hash
-	n_opts = opts.inject({}) { |memo,(k,v)| memo[k.to_sym] = v; memo }
-	@@default_options = n_opts
+      class << self
+        attr_accessor :default_options # better than @@ variable
+      end
+      Builder.default_options = {}
+
+      BUILTIN_OPTIONS = {
+        persist_attrs: [:refresh_token, :access_token, :expires_in, :issued_at],
+        name: :google,
+
+        # is this a login-based OAuth2 adapter? If so, the callback will be used to identify a
+        # user and create one if necessary
+        # Options: :login, :webserver
+        type: :webserver,
+        storage_attr: :signet,
+
+        # TODO: see https://developers.google.com/accounts/docs/OAuth2Login#authenticationuriparameters
+        approval_prompt: 'auto',
+        authorization_uri: 'https://accounts.google.com/o/oauth2/auth',
+        token_credential_uri: 'https://accounts.google.com/o/oauth2/token',
+
+        # whether we handle the persistence of the auth callback or simply pass-through
+        handle_auth_callback: true,
+        persistence_wrapper: :active_record
+      }
+
+      def self.set_default_options(opts = {})
+        # normalize to symbol hash
+        Builder.default_options = opts.symbolize_keys
       end
 
       def initialize(app, &block)
-	super
+        super
       end
 
       def provider(opts = {}, &block)
-	# normalize to symbol hash
-	n_opts = opts.inject({}) { |memo,(k,v)| memo[k.to_sym] = v; memo }
+        # Use BUILTIN_OPTIONS as base then merge default_options upon them, then options from parameter on top
+        combined_options = BUILTIN_OPTIONS.merge \
+                             Builder.default_options.merge \
+                               opts.symbolize_keys
 
-	# use the default_options as a base... then merge these changes on top
-	combined_options = @@default_options.merge(n_opts)
-
-	# now set some defaults if they aren't already set
-	
-	combined_options[:persist_attrs] ||= [:refresh_token, :access_token, :expires_in, :issued_at]
-	combined_options[:name] ||= :google
-
-	# is this a login-based OAuth2 adapter? If so, the callback will be used to identify a
-	# user and create one if necessary
-	# Options: :login, :webserver
-	combined_options[:type] ||= :webserver
-
-	# name of hash-behaving attribute on our wrapper that contains credentials
-	# keyed by :name
-	# {
+        provider_name = combined_options[:name]
+        # {
         #   "google": {
         #     "uid": "012345676789abcde",
         #     "refresh_token": "my_first_refresh_token",
@@ -43,95 +54,97 @@ module Signet
         #     "expires_in": 123
         #   }
         # }
-	combined_options[:storage_attr] ||= :signet
 
-	# TODO: see https://developers.google.com/accounts/docs/OAuth2Login#authenticationuriparameters
-	combined_options[:approval_prompt] ||= 'auto'
+        # unless specified, we need to set this at request-time because we need the env to get server etc
+        # combined_options[:redirect_uri] = ??? need env
 
-	# unless specified, we need to set this at request-time because we need the env to get server etc
-	# combined_options[:redirect_uri] = ??? need env 
-	
-	# TODO: better way of sourcing these defaults... from signet?
-	combined_options[:authorization_uri] ||= 'https://accounts.google.com/o/oauth2/auth'
-	combined_options[:token_credential_uri] ||= 'https://accounts.google.com/o/oauth2/token'
+        # The following lambda will be used when creating a new client in a factory
+        # to get the persistence object
+        combined_options[:extract_from_session] ||= oauth_credentials_fetcher(provider_name)
 
-	# whether we handle the persistence of the auth callback or simply pass-through
-	combined_options[:handle_auth_callback] ||= true
+        # The following lambda will be used when handling the callback from the oauth server
+        # In this flow we might not yet have established a session... need to handle two
+        # flows, one for login, one not
+        # when on a login auth_callback, how do we get the persistence object from the JWT?
+        combined_options[:extract_by_oauth_id] ||= oauth_credentials_creator(provider_name, combined_options[:type])
 
-	# The following lambda will be used when creating a new client in a factory
-	# to get the persistence object 
-	combined_options[:extract_from_env] ||= lambda do |env, client|
-	  oac = nil
-	  session = env['rack.session']
-	  if !!session && !!session[:user_id]
-	    begin
-	      u = User.find(session[:user_id])
-	      oac = u.o_auth2_credentials.where(name: combined_options[:name]).first
-	    rescue ActiveRecord::RecordNotFound => e
-	    end
-	  end
-	  oac
-	end
+        wrap_extraction_callbacks_in_persistence(combined_options)
 
-	# The following lambda will be used when handling the callback from the oauth server
-	# In this flow we might not yet have established a session... need to handle two
-	# flows, one for login, one not
-	# when on a login auth_callback, how do we get the persistence object from the JWT?
-	combined_options[:extract_by_oauth_id] ||= lambda do |env, client, id|
-	  oac = nil
-	  begin
-	    u = nil
-	    if combined_options[:type] == :login
-	      u = User.first_or_initialize(uid: combined_options[:name].to_s + "_" + id)
-	      u.save
-	    else
-	      session = env['rack.session']
-	      if !!session && !!session[:user_id]
-		begin
-		  u = User.find(session[:user_id])
-		rescue ActiveRecord::RecordNotFound => e
-		end
-	      else
-		raise "Expected to be able to find user in session"
-	      end
-	    end
+        # TODO: check here we have the basics?
 
-	    oac = u.o_auth2_credentials.first_or_initialize(name: combined_options[:name])
+        # TODO: better auth_options split?
+        auth_option_keys = [:prompt, :redirect_uri, :access_type, :approval_prompt, :client_id]
+        auth_options = combined_options.slice(*auth_option_keys)
 
-	  rescue ActiveRecord::RecordNotFound => e
-	  end
-
-	  oac
-	end
-
-	combined_options[:persistence_wrapper] ||= :active_record
-
-	# define a lambda that returns a lambda that wraps our OAC lambda return object
-	# in a persistance object
-	persistence_wrapper = lambda do |meth|
-	  lambda do |env, client, *args|
-	    y = meth.call env, client, *args
-	    klass_str = combined_options[:persistence_wrapper].to_s
-	    require "signet/rails/wrappers/#{klass_str}"
-	    w = "Signet::Rails::Wrappers::#{klass_str.camelize}".constantize.new y, client
-	  end
-	end
-
-	combined_options[:extract_by_oauth_id] = persistence_wrapper.call combined_options[:extract_by_oauth_id]
-	combined_options[:extract_from_env] = persistence_wrapper.call combined_options[:extract_from_env]
-
-	# TODO: check here we have the basics?
-	
-	# TODO: better auth_options split?
-	auth_option_keys = [:prompt, :redirect_uri, :access_type, :approval_prompt, :client_id]
-	base_options = combined_options
-	auth_options = base_options.select { |k,v| auth_option_keys.include? k }
-
-	use Signet::Rails::Handler, base_options, auth_options, &block
+        use Signet::Rails::Handler, combined_options, auth_options, &block
       end
 
       def call(env)
-	to_app.call(env)
+        to_app.call(env)
+      end
+
+      private
+
+      def get_or_create_user(name, id, env, type)
+        if type == :login
+          User.first_or_create(uid: "#{name}_#{id}")
+        else
+          process_with_user_id_from_session_strict(env['rack.session']) do |user_id|
+            User.find(user_id)
+          end
+        end
+      end
+
+      def oauth_credentials_creator(name, type)
+        lambda do |env, client, id|
+          begin
+            u = get_or_create_user(name, id, env, type)
+            u.o_auth2_credentials.first_or_initialize(name: name)
+          rescue ActiveRecord::RecordNotFound
+            nil
+          end
+        end
+      end
+
+      def oauth_credentials_fetcher(name)
+        lambda do |session, client|
+          process_with_user_id_from_session(session) do |user_id|
+            u = User.find(user_id)
+            u.o_auth2_credentials.where(name: name).first
+          end
+        end
+      end
+
+      def wrap_extraction_callbacks_in_persistence(combined_options)
+        wrapper_name = combined_options[:persistence_wrapper].to_s
+
+        combined_options[:extract_by_oauth_id] = \
+          wrap_in_persistence(wrapper_name, combined_options[:extract_by_oauth_id])
+        combined_options[:extract_from_session] = \
+          wrap_in_persistence(wrapper_name, combined_options[:extract_from_session])
+      end
+
+      def wrap_in_persistence(wrapper_name, original_method)
+        lambda do |env, client, *args|
+          original_method_result = original_method.call env, client, *args
+          require "signet/rails/wrappers/#{wrapper_name}"
+          "Signet::Rails::Wrappers::#{wrapper_name.camelize}".constantize.new original_method_result, client
+        end
+      end
+
+      def process_with_user_id_from_session_strict(session, &block)
+        fail 'Expected to be able to find user in session' unless session && session[:user_id]
+        process_with_user_id_from_session(session, &block)
+      end
+
+      def process_with_user_id_from_session(session, &block)
+        return nil unless session && session[:user_id]
+
+        begin
+          yield session[:user_id]
+        rescue ActiveRecord::RecordNotFound
+          nil
+        end
       end
     end
   end

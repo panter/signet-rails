@@ -4,32 +4,30 @@ module Signet
   module Rails
 
     class Factory
-      def self.create_from_env name, env, opt_hsh = {load_token: true}
-        
+
+      def self.create_from_env(name, env, options = { load_token: true })
         # TODO: not pretty...thread safe? best approach? Other uses below
-        handler = env["signet.#{name.to_s}"]
-	instance = env["signet.#{name.to_s}.instance"]
-	
-        #client = instance.obj
-        client = instance
+        env["signet.#{name}.instance"] ||
+          get_client_from_handler(env["signet.#{name}"], name, env, options)
+      end
 
-        return client if !!client
+      private
 
-	if handler.nil? 
-	  raise ArgumentError, "Unable to find signet handler named #{name.to_s}"
-	end
+      def self.get_client_from_handler(handler, name, env, options)
+        raise ArgumentError, "Unable to find signet handler named #{name}" unless handler
 
         client = Signet::OAuth2::Client.new handler.options
-
-        if opt_hsh[:load_token]
-          obj = handler.options[:extract_from_env].call env, client
-          handler.load_token_state obj, client
-
-          #instance.obj = obj
-	  env["signet.#{name.to_s}.instance"] = obj
-        end
+        extract_instance_from_env(handler, env, client) if options[:load_token]
 
         client
+      end
+
+      def self.extract_instance_from_env(handler, env, client)
+        obj = handler.options[:extract_from_session].call env['rack.session'], client
+        handler.load_token_state obj, client
+
+        # client.obj = obj
+        env["signet.#{name}.instance"] = obj
       end
     end
   end
