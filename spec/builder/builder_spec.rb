@@ -1,17 +1,27 @@
 require 'spec_helper'
 require 'signet/rails'
 require 'rack/test'
-require 'factory_girl'
+require 'sinatra/base'
 
-describe 'signet-rails' do
-  include Rack::Test::Methods
-
-  def app
-    FactoryGirl.create(:fake_app)
+class FakeApp < Sinatra::Base
+  get "/" do
+    "Hello"
   end
+end
 
-  it 'says hello' do
-    get '/'
-    expect(last_response).to be_ok
+module Signet
+  module Rails
+    describe 'default settings' do
+      include Rack::Test::Methods
+
+      def app
+        Builder.new FakeApp.new
+      end
+
+      it 'says hello' do
+        get '/'
+        expect(last_response).to be_ok
+      end
+    end
   end
 end
