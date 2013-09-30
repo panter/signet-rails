@@ -1,4 +1,4 @@
-require 'signet/oauth_2'
+require 'signet/oauth_2/client'
 
 module Signet
   module Rails

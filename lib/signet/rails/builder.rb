@@ -76,6 +76,13 @@ module Signet
         auth_option_keys = [:prompt, :redirect_uri, :access_type, :approval_prompt, :client_id]
         auth_options = combined_options.slice(*auth_option_keys)
 
+        # verify we have certain required values
+        if combined_options[:type] == :login
+          raise ArgumentError, 'Client id is required for a type: :login provider' unless auth_options[:client_id] and auth_options[:client_id].is_a? String 
+          raise ArgumentError, 'Scope is required' unless combined_options[:scope] 
+          # TODO error handling for scope: must be a string or array of strings
+        end
+
         use Signet::Rails::Handler, combined_options, auth_options, &block
       end
 
