@@ -8,7 +8,7 @@ module Signet
       def self.create_from_env(name, env, options = { load_token: true })
         # TODO: not pretty...thread safe? best approach? Other uses below
         env["signet.#{name}.instance"] ||
-          get_client_from_handler(env["signet.#{name}"], name, env, options)
+        get_client_from_handler(env["signet.#{name}"], name, env, options)
       end
 
       private

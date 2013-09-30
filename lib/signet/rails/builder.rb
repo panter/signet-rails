@@ -42,8 +42,8 @@ module Signet
       def provider(opts = {}, &block)
         # Use BUILTIN_OPTIONS as base then merge default_options upon them, then options from parameter on top
         combined_options = BUILTIN_OPTIONS.merge \
-                             Builder.default_options.merge \
-                               opts.symbolize_keys
+          Builder.default_options.merge \
+          opts.symbolize_keys
 
         provider_name = combined_options[:name]
         # {
