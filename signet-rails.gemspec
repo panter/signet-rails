@@ -23,6 +23,10 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'rspec', '~> 2.14.1'
   spec.add_development_dependency 'sinatra'
   spec.add_development_dependency 'factory_girl', '~> 4.2.0'
-  spec.add_dependency 'signet', '~> 0.5.0'
-  spec.add_dependency 'rack', '~> 1.5.2'
+  spec.add_development_dependency 'faraday', '~> 0.8.1'
+  spec.add_development_dependency 'activerecord'
+  spec.add_development_dependency 'sqlite3'
+  spec.add_development_dependency 'jwt'
+  spec.add_dependency 'signet', '~> 0.4.5'
+  spec.add_dependency 'rack', '~> 1.4.5'
 end
