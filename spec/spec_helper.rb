@@ -5,6 +5,7 @@ require 'faraday'
 require 'faraday/adapter/test'
 require 'securerandom'
 require 'jwt'
+require 'uri'
 
 Dir[File.dirname(__FILE__)+"/support/*.rb"].each {|file| require file }
 Dir[File.dirname(__FILE__)+"/*factory.rb"].each {|file| require file }

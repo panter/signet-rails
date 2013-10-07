@@ -1,10 +1,24 @@
 require 'spec_helper'
+require 'securerandom'
+require 'jwt'
+require 'uri'
+require 'faraday'
+require 'sinatra/base'
+require 'faraday/adapter/test'
+require 'signet/rails'
 
 describe Signet::Rails::Handler do
 
-  # lightweight sinatra app for testing 
-  # wraps in Rack::Lint and puts the Signet::Rails::Handler in the middleware stack
-  def base_app opts = {}
+  # creates a basic Rack stack with an instance of a Signet::Rails::Handler in place
+  #
+  # Top    lightweight sinatra app for testing 
+  #        Rack::Lint
+  #        Signet::Rails::Handler
+  #        Rack:Lint
+  #        Rack::Session::Cookie
+  # Bot    Rack::Lint
+  #
+  def create_base_app opts = {}
     app_1 = FakeApp.new
     app_2 = Rack::Lint.new app_1
     app_3 = Signet::Rails::Builder.new app_2 do
@@ -15,14 +29,18 @@ describe Signet::Rails::Handler do
     app_6 = Rack::Lint.new app_5
 
     # Sinatra wraps our top app... let's get it back out again
-    # for @top
-    @base, @top = [app_6, (app_1.instance_variable_get :@instance)]
+    # for @top. See 
+    # https://github.com/sinatra/sinatra/blob/master/lib/sinatra/base.rb#L1448-L1456
+    @top = app_1.instance_variable_get :@instance
+
+    @base = app_6
     @app_env = nil
     @top.callback = lambda do |env|
       @app_env = env
     end
     @req = request @base
-    [@base, @top]
+
+    @base
   end
 
   def req_get uri, env_opts = {}
@@ -30,7 +48,7 @@ describe Signet::Rails::Handler do
   end
 
   def create_login_app opts = {}
-    base_app opts.merge({type: :login})
+    create_base_app opts.merge({type: :login})
   end
 
   DEFAULT_ENV = {
@@ -72,43 +90,34 @@ describe Signet::Rails::Handler do
     end
   end
 
+  # **********************************************
+
   context 'that is login based' do
+
+    it 'should require a string client id' do
+      expect { create_login_app }.
+        to raise_error(ArgumentError, 'Client id is required for a type: :login provider')
+    end
+
+    it 'should require a scope to be defined' do
+      expect {create_login_app client_id: 'id'}.
+        to raise_error(ArgumentError, 'Scope is required')
+    end
+
+    it 'should require scope to be a(n array of) string(s)'
+    it 'should handle scope strings that contain commas'
+
+    it 'should handle untrimmed scope strings' do
+      create_login_app client_id: 'id', scope: ' test '
+      resp = req_get '/signet/google/auth'
+      redirect = URI 'https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=id&redirect_uri=http://myitcv.org.uk:4321/signet/google/auth_callback&response_type=code&scope=test'
+      query_params = URI.decode_www_form redirect.query
+      scope_params = query_params.select { |p| p[0] == 'scope' }
+      expect(scope_params.length).to eq(1)
+      expect(scope_params[0][1]).to eq('test')
+    end
+
     context 'with default arguments' do
-      it 'should require a string client id' do
-        exception = nil
-        begin
-          create_login_app
-        rescue ArgumentError => e
-          exception = e
-        end
-        expect(exception).not_to be_nil
-        expect(exception.message).to eq('Client id is required for a type: :login provider')
-      end
-
-      it 'should require a scope to be defined' do
-        exception = nil
-        begin
-          create_login_app client_id: 'id'
-        rescue ArgumentError => e
-          exception = e
-        end
-        expect(exception).not_to be_nil
-        expect(exception.message).to eq('Scope is required')
-      end
-
-      # TODO
-      it 'should require scope to be a(n array of) string(s)'
-
-      # TODO
-      it 'should handle scope strings that contain commas'
-      # i.e. it should behave as if an array was passed in
-
-      it 'should handle untrimmed scope strings' do
-        create_login_app client_id: 'id', scope: ' test '
-        resp = req_get '/signet/google/auth'
-        expect(resp.body).to be_empty
-        expect(resp.original_headers['Location']).to eq('https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=id&redirect_uri=http://myitcv.org.uk:4321/signet/google/auth_callback&response_type=code&scope=test')
-      end
 
       it 'should redirect to google' do
         create_login_app client_id: 'id', scope: 'test'
@@ -137,14 +146,8 @@ describe Signet::Rails::Handler do
 
       it 'should require an auth_code on auth callback' do
         create_login_app client_id: 'id', scope: 'scope'
-        exception = nil
-        begin
-          resp = req_get '/signet/google/auth_callback'
-        rescue ArgumentError => e
-          exception = e
-        end
-        expect(exception).not_to be_nil
-        expect(exception.message).to eq('Missing authorization code in auth_callback')
+        expect { resp = req_get '/signet/google/auth_callback' }.
+          to raise_error(ArgumentError, 'Missing authorization code in auth_callback')
       end
 
       it 'should attempt to get an access_token on auth_callback' do
@@ -164,7 +167,7 @@ describe Signet::Rails::Handler do
   end
   context 'that is google-based' do
     it 'should redirect based on provider name' do
-      base, top = base_app name: :google, type: :login, client_id: 'id', client_secret: 456, scope: 'myscope'
+      base, top = create_base_app name: :google, type: :login, client_id: 'id', client_secret: 456, scope: 'myscope'
       req = request base
       resp = req.get '/signet/google/auth'
     end
