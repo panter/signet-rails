@@ -7,6 +7,7 @@ require 'sinatra/base'
 require 'faraday/adapter/test'
 require 'signet/rails'
 
+
 describe Signet::Rails::Handler do
 
   # creates a basic Rack stack with an instance of a Signet::Rails::Handler in place
