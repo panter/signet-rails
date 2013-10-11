@@ -154,7 +154,7 @@ module Signet
           begin
             u = nil
             if combined_options[:type] == :login
-              u = ::User.first_or_create(uid: combined_options[:name].to_s + "_" + id)
+              u = ::User.where(uid: combined_options[:name].to_s + "_" + id).first_or_create
             else
               session = env['rack.session']
               if !!session && !!session[:user_id]
@@ -167,7 +167,7 @@ module Signet
               end
             end
 
-            oac = u.o_auth2_credentials.first_or_initialize(name: combined_options[:name])
+            oac = u.o_auth2_credentials.where(name: combined_options[:name]).first_or_initialize
 
           rescue ::ActiveRecord::RecordNotFound => e
             # TODO 
