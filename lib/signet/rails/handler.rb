@@ -159,7 +159,7 @@ module Signet
         client.code = query_string_params['code']
         client.redirect_uri = auth_options(env)[:redirect_uri]
 
-        raise ArgumentError, 'Missing authorization code in auth_callback' unless client.code
+        return unless client.code
 
         # TODO is there a better way of passing in a connection for testing?
         client.fetch_access_token!({connection: options[:connection]})

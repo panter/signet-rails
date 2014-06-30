@@ -145,12 +145,6 @@ describe Signet::Rails::Handler do
         expect(resp.original_headers['Location']).to eq('https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=id&redirect_uri=http://myitcv.org.uk:4321/signet/google/auth_callback&response_type=code&scope=https://www.googleapis.com/auth/userinfo.email')
       end
 
-      it 'should require an auth_code on auth callback' do
-        create_login_app client_id: 'id', scope: 'scope'
-        expect { resp = req_get '/signet/google/auth_callback' }.
-          to raise_error(ArgumentError, 'Missing authorization code in auth_callback')
-      end
-
       it 'should attempt to get an access_token on auth_callback' do
         create_login_app client_id: 'id', scope: 'scope', connection: @faraday
 
