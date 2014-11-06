@@ -1,0 +1,10 @@
+database:
+    override:
+      - echo "No DB"
+
+deployment:
+  production:
+    branch: master
+    commands:
+      - gem build signet-rails.gemspec
+      - curl -F package=@$(ls signet-rails*.gem) https://$GEMFURY_TOKEN@push.fury.io/ad2games/
