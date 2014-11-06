@@ -26,7 +26,7 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'faraday', '~> 0.8.1'
   spec.add_development_dependency 'activerecord'
   spec.add_development_dependency 'sqlite3'
-  spec.add_development_dependency 'jwt'
+  spec.add_development_dependency 'jwt', '~> 0.1.8'
   spec.add_dependency 'signet', '~> 0.4.5'
   spec.add_dependency 'rack', '>= 1.4.5'
 end

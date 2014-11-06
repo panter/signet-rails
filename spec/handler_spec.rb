@@ -149,7 +149,7 @@ describe Signet::Rails::Handler do
         create_login_app client_id: 'id', scope: 'scope', connection: @faraday
 
         # TODO this could be made stronger
-        @faraday.app.should_receive(:call).with(1).and_call_original
+        @faraday.app.should_receive(:call).and_call_original
         resp = req_get '/signet/google/auth_callback', params: {code: '123'}
         credentials = @app_env['signet.google.persistence_obj']
         expect(resp.body).to eq('Auth Callback')
