@@ -179,7 +179,7 @@ module Signet
         # TODO: check here we have the basics?
 
         # TODO: better auth_options split?
-        auth_option_keys = [:prompt, :redirect_uri, :approval_prompt, :client_id]
+        auth_option_keys = [:prompt, :redirect_uri, :approval_prompt, :client_id, :access_type]
         auth_options = combined_options.slice(*auth_option_keys)
 
         # verify we have certain required values
